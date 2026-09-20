@@ -1,0 +1,15 @@
+# Personal deployment config - copy config.mk.example instead.
+config.mk
+
+# Local Claude Code project state (deploy skill, scratch notes) - personal, not for the repo.
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+
+# Test/scratch artifacts
+test-downloads/
+
+# OS cruft
+.DS_Store

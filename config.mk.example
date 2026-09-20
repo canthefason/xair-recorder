@@ -1,0 +1,10 @@
+# Copy this file to config.mk (gitignored, never committed) and fill in
+# your own values. The Makefile falls back to generic placeholder defaults
+# if config.mk doesn't exist, so this is only needed to point `make deploy`
+# etc. at your actual device.
+
+PI_HOST    := pi@your-device.local
+HOST       := your-device.local
+REMOTE_DIR := /home/pi/xair-recorder
+# SERVICE  := xair-recorder
+# PORT     := 8080

@@ -1,0 +1,15 @@
+[Unit]
+Description=X Air Recorder Web Control
+After=network.target sound.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__INSTALL_DIR__
+Environment=XAIR_REC_DIR=__RECORDINGS_DIR__
+ExecStart=/usr/bin/python3 __INSTALL_DIR__/webui.py
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
