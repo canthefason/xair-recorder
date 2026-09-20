@@ -100,17 +100,30 @@ Set these in the systemd unit (`scripts/install-service.sh` writes
 before running the CLI directly.
 
 **On `XAIR_SAMPLE_FORMAT`/`XAIR_SAMPLE_RATE`:** these only change what we ask
-ALSA for — the mixer's USB Audio descriptor decides what it actually accepts,
-and X-Air mixers generally run a fixed internal clock rate, so not every
-combination will work on every device. Check what a given mixer supports
-before relying on a non-default value:
+ALSA for — the mixer's USB Audio descriptor decides what it actually accepts.
+Verified against a real XR18:
+
+- **Format is hard-locked to `S24_3LE`.** Requesting `S16_LE`, `S32_LE`, or
+  `FLOAT_LE` is rejected outright (`arecord: set_params:... Sample format
+  non available` — the driver reports only `S24_3LE` as available).
+- **Rate is hard-locked to 48000Hz, but silently, not rejected.**
+  Requesting `44100` or `96000` doesn't error — ALSA just falls back to
+  48000Hz with a warning (`rate is not accurate (requested = 44100Hz, got =
+  48000Hz)`) and records at 48000Hz anyway. If you set `XAIR_SAMPLE_RATE` to
+  anything but `48000` on an XR18, the *actual* recording is still 48kHz,
+  but this code's own disk-space/duration math (`BYTES_PER_SECOND`) would
+  keep using whatever you set it to — throwing those estimates off. In
+  short: don't override `XAIR_SAMPLE_RATE` on an XR18.
+
+These variables exist for genuinely different X-Air devices, which may
+support other formats/rates. Check what a given mixer actually accepts
+before relying on a non-default value — note this runs a brief real capture
+(harmless, but not a pure dry-run), so redirect its output and cap the
+duration:
 
 ```
-arecord -D hw:<card> --dump-hw-params -c <channels> -f <format> -r <rate>
+arecord -D hw:<card> --dump-hw-params -c <channels> -f <format> -r <rate> -d 1 > /dev/null
 ```
-
-(run with the mixer idle — not already recording — to see its actual
-supported ranges without needing a real recording).
 
 ## Using it
 
