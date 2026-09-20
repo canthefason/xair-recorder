@@ -90,8 +90,6 @@ This project is intentionally minimal: capture, browse, download, done.
 |---|---|---|
 | `XAIR_CARD_NAME` | `XR18` | ALSA card name to record from (`arecord -l`) |
 | `XAIR_CHANNELS` | `18` | Number of channels that card sends over USB |
-| `XAIR_SAMPLE_FORMAT` | `S24_3LE` | `arecord -f` value: `S16_LE`, `S24_3LE`, `S24_LE`, `S32_LE`, or `FLOAT_LE` |
-| `XAIR_SAMPLE_RATE` | `48000` | Sample rate in Hz, e.g. `44100`, `48000`, `96000` |
 | `XAIR_REC_DIR` | `~/recordings` | Where recordings are written |
 | `XAIR_WIFI_DEVICE` | `wlan0` | WiFi interface used for venue/home switching |
 
@@ -99,27 +97,14 @@ Set these in the systemd unit (`scripts/install-service.sh` writes
 `XAIR_REC_DIR` there already; add the others the same way) or export them
 before running the CLI directly.
 
-**On `XAIR_SAMPLE_FORMAT`/`XAIR_SAMPLE_RATE`:** these only change what we ask
-ALSA for — the mixer's USB Audio descriptor decides what it actually accepts.
-Verified against a real XR18:
-
-- **Format is hard-locked to `S24_3LE`.** Requesting `S16_LE`, `S32_LE`, or
-  `FLOAT_LE` is rejected outright (`arecord: set_params:... Sample format
-  non available` — the driver reports only `S24_3LE` as available).
-- **Rate is hard-locked to 48000Hz, but silently, not rejected.**
-  Requesting `44100` or `96000` doesn't error — ALSA just falls back to
-  48000Hz with a warning (`rate is not accurate (requested = 44100Hz, got =
-  48000Hz)`) and records at 48000Hz anyway. If you set `XAIR_SAMPLE_RATE` to
-  anything but `48000` on an XR18, the *actual* recording is still 48kHz,
-  but this code's own disk-space/duration math (`BYTES_PER_SECOND`) would
-  keep using whatever you set it to — throwing those estimates off. In
-  short: don't override `XAIR_SAMPLE_RATE` on an XR18.
-
-These variables exist for genuinely different X-Air devices, which may
-support other formats/rates. Check what a given mixer actually accepts
-before relying on a non-default value — note this runs a brief real capture
-(harmless, but not a pure dry-run), so redirect its output and cap the
-duration:
+Sample format (`S24_3LE`) and rate (`48000`Hz) are fixed constants in
+`recorder.py`, not environment variables — verified against a real XR18,
+the device hard-rejects any other format and silently ignores any other
+rate (falls back to 48000Hz rather than erroring), so a "configurable" knob
+there would just be a no-op or actively wrong. If you're on a different
+X-Air device and know it supports something else, check first (this runs a
+brief real capture, so redirect its output and cap the duration) and edit
+the constants directly if so:
 
 ```
 arecord -D hw:<card> --dump-hw-params -c <channels> -f <format> -r <rate> -d 1 > /dev/null

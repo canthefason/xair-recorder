@@ -55,26 +55,23 @@ they're built the way they are.
 
 ## Supporting other X-Air devices
 
-`CARD_NAME`, `CHANNELS`, `SAMPLE_FORMAT`, and `SAMPLE_RATE` in `recorder.py`
-are the only device-specific constants in the whole codebase (confirmed by
-grepping both `recorder.py` and `webui.py` for other hardcoded channel
-counts, formats, or device names — there aren't any). All four are read from
-`XAIR_CARD_NAME`/`XAIR_CHANNELS`/`XAIR_SAMPLE_FORMAT`/`XAIR_SAMPLE_RATE`
-environment variables at import time, defaulting to the XR18's values
-(`"XR18"`, `18`, `"S24_3LE"`, `48000`). Pointing this at a different device,
-or a different format/rate the same device also supports, is a config
-change, not a code change — see the README's Environment Variables section.
+`CARD_NAME` and `CHANNELS` in `recorder.py` are the only device-specific
+constants in the whole codebase (confirmed by grepping both `recorder.py`
+and `webui.py` for other hardcoded channel counts or device names — there
+aren't any). They're read from `XAIR_CARD_NAME`/`XAIR_CHANNELS` environment
+variables at import time, defaulting to the XR18's values (`"XR18"`, `18`).
+Pointing this at an XR12, XR16, or X18 is a config change, not a code change
+— see the README's Environment Variables section.
 
-`BYTES_PER_SAMPLE` (used for the disk-space/free-minutes math) and the
-ffmpeg codec used when splitting channels are both derived from
-`SAMPLE_FORMAT` via small lookup tables (`_FORMAT_BYTES`,
-`_FFMPEG_PCM_CODEC`) rather than hardcoded, so a format override stays
-consistent everywhere it matters instead of just changing the `arecord`
-invocation.
-
-An invalid `XAIR_SAMPLE_FORMAT` fails fast at import time with a clear
-`ValueError` rather than silently miscalculating disk space or producing a
-`start()` that fails confusingly later.
+`SAMPLE_FORMAT`/`SAMPLE_RATE` are deliberately *not* in that list — they're
+plain constants, not environment variables. Verified against a real XR18:
+the device hard-rejects any format but `S24_3LE`, and silently falls back to
+48000Hz for any other rate request rather than erroring. A "configurable"
+knob there would either be a no-op or actively desync this code's own
+disk-space math from what's really being recorded, so it isn't offered.
+Someone on a different X-Air device that genuinely supports something else
+would edit the constants directly, after confirming with `arecord
+--dump-hw-params` (see README).
 
 ## Why a state file, not just in-memory state
 

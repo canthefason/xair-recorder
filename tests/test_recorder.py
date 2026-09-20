@@ -247,7 +247,7 @@ class SplitChannelsTests(RecorderTestCase):
         # builds and broke this feature in production - must not come back.
         self.assertNotIn("-map_channel", first_cmd)
         self.assertIn("pan=mono|c0=c0", first_cmd)
-        self.assertIn(recorder._FFMPEG_PCM_CODEC[recorder.SAMPLE_FORMAT], first_cmd)
+        self.assertIn("pcm_s24le", first_cmd)
 
     @patch("recorder.subprocess.run")
     def test_raises_on_ffmpeg_failure(self, mock_run):
@@ -382,16 +382,11 @@ class DeviceConfigEnvVarTests(unittest.TestCase):
         ).stdout.strip()
         self.assertEqual(out, "XR16 16")
 
-    def test_sample_format_and_rate_default(self):
-        out = subprocess.run(
-            [sys.executable, "-c",
-             "import recorder; print(recorder.SAMPLE_FORMAT, recorder.SAMPLE_RATE, recorder.BYTES_PER_SAMPLE)"],
-            cwd=str(Path(__file__).resolve().parent.parent),
-            capture_output=True, text=True, check=True,
-        ).stdout.strip()
-        self.assertEqual(out, "S24_3LE 48000 3")
-
-    def test_sample_format_and_rate_overridable(self):
+    def test_sample_format_and_rate_are_fixed_not_configurable(self):
+        # Deliberate: verified against a real XR18, the device hard-rejects
+        # any format but S24_3LE and silently ignores any rate but 48000Hz,
+        # so these are constants, not environment-variable overrides like
+        # CARD_NAME/CHANNELS. This guards against that regressing.
         env = dict(os.environ, XAIR_SAMPLE_FORMAT="S16_LE", XAIR_SAMPLE_RATE="44100")
         out = subprocess.run(
             [sys.executable, "-c",
@@ -399,29 +394,7 @@ class DeviceConfigEnvVarTests(unittest.TestCase):
             cwd=str(Path(__file__).resolve().parent.parent),
             capture_output=True, text=True, check=True, env=env,
         ).stdout.strip()
-        self.assertEqual(out, "S16_LE 44100 2")
-
-    def test_bytes_per_second_reflects_overridden_format(self):
-        # This is what disk-space/free-minutes math in start()/status() relies
-        # on, so a format override has to actually change the byte math, not
-        # just be cosmetic.
-        env = dict(os.environ, XAIR_SAMPLE_FORMAT="S16_LE", XAIR_CHANNELS="2", XAIR_SAMPLE_RATE="44100")
-        out = subprocess.run(
-            [sys.executable, "-c", "import recorder; print(recorder.BYTES_PER_SECOND)"],
-            cwd=str(Path(__file__).resolve().parent.parent),
-            capture_output=True, text=True, check=True, env=env,
-        ).stdout.strip()
-        self.assertEqual(int(out), 2 * 2 * 44100)
-
-    def test_invalid_sample_format_fails_fast_with_clear_error(self):
-        env = dict(os.environ, XAIR_SAMPLE_FORMAT="NOT_A_REAL_FORMAT")
-        result = subprocess.run(
-            [sys.executable, "-c", "import recorder"],
-            cwd=str(Path(__file__).resolve().parent.parent),
-            capture_output=True, text=True, env=env,
-        )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("NOT_A_REAL_FORMAT", result.stderr)
+        self.assertEqual(out, "S24_3LE 48000 3")
 
 
 if __name__ == "__main__":
