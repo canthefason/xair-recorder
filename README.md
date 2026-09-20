@@ -90,12 +90,27 @@ This project is intentionally minimal: capture, browse, download, done.
 |---|---|---|
 | `XAIR_CARD_NAME` | `XR18` | ALSA card name to record from (`arecord -l`) |
 | `XAIR_CHANNELS` | `18` | Number of channels that card sends over USB |
+| `XAIR_SAMPLE_FORMAT` | `S24_3LE` | `arecord -f` value: `S16_LE`, `S24_3LE`, `S24_LE`, `S32_LE`, or `FLOAT_LE` |
+| `XAIR_SAMPLE_RATE` | `48000` | Sample rate in Hz, e.g. `44100`, `48000`, `96000` |
 | `XAIR_REC_DIR` | `~/recordings` | Where recordings are written |
 | `XAIR_WIFI_DEVICE` | `wlan0` | WiFi interface used for venue/home switching |
 
 Set these in the systemd unit (`scripts/install-service.sh` writes
 `XAIR_REC_DIR` there already; add the others the same way) or export them
 before running the CLI directly.
+
+**On `XAIR_SAMPLE_FORMAT`/`XAIR_SAMPLE_RATE`:** these only change what we ask
+ALSA for — the mixer's USB Audio descriptor decides what it actually accepts,
+and X-Air mixers generally run a fixed internal clock rate, so not every
+combination will work on every device. Check what a given mixer supports
+before relying on a non-default value:
+
+```
+arecord -D hw:<card> --dump-hw-params -c <channels> -f <format> -r <rate>
+```
+
+(run with the mixer idle — not already recording — to see its actual
+supported ranges without needing a real recording).
 
 ## Using it
 

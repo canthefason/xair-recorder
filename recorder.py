@@ -6,14 +6,24 @@ XR18, X18, ...) over USB as a single interleaved WAV file via ALSA's
 arecord, and provides start/stop/status operations shared by the CLI and the
 web UI.
 
-CARD_NAME and CHANNELS default to the XR18 (the device this was built and
-tested against) but work with any X-Air device via environment variables -
-no code changes needed:
+CARD_NAME, CHANNELS, SAMPLE_FORMAT and SAMPLE_RATE default to the XR18 (the
+device this was built and tested against) but everything is overridable via
+environment variables - no code changes needed:
 
-    XAIR_CARD_NAME  - the ALSA card name (check with `arecord -l`)
-    XAIR_CHANNELS   - how many channels that device sends over USB (this is
-                      configurable on the mixer itself and isn't always the
-                      same as its total input count)
+    XAIR_CARD_NAME    - the ALSA card name (check with `arecord -l`)
+    XAIR_CHANNELS     - how many channels that device sends over USB (this is
+                        configurable on the mixer itself and isn't always the
+                        same as its total input count)
+    XAIR_SAMPLE_FORMAT - an arecord -f value, e.g. S16_LE, S24_3LE, S32_LE
+    XAIR_SAMPLE_RATE    - in Hz, e.g. 44100, 48000, 96000
+
+Note that overriding SAMPLE_FORMAT/SAMPLE_RATE only changes what we *ask*
+ALSA for - the mixer's USB Audio descriptor ultimately decides what it will
+actually accept, and X-Air mixers generally run their internal clock at a
+fixed rate. Check what a given device supports before assuming a value will
+work: `arecord -D hw:<card> --dump-hw-params -c <channels> -f <format> -r
+<rate>` (with the device idle, i.e. not already recording) will show you the
+actual acceptable ranges without needing to run a real recording.
 """
 import argparse
 import json
@@ -28,9 +38,37 @@ from pathlib import Path
 
 CARD_NAME = os.environ.get("XAIR_CARD_NAME", "XR18")
 CHANNELS = int(os.environ.get("XAIR_CHANNELS", "18"))
-SAMPLE_FORMAT = "S24_3LE"  # 24-bit packed in 3 bytes
-BYTES_PER_SAMPLE = 3
-SAMPLE_RATE = 48000
+SAMPLE_FORMAT = os.environ.get("XAIR_SAMPLE_FORMAT", "S24_3LE")
+SAMPLE_RATE = int(os.environ.get("XAIR_SAMPLE_RATE", "48000"))
+
+# Bytes per sample for each format arecord/ALSA commonly supports - needed to
+# compute disk-space/bitrate math (BYTES_PER_SECOND below), since that can't
+# be derived from the format string alone (e.g. S24_3LE packs 24 bits into 3
+# bytes, while S24_LE pads the same 24 bits out to 4).
+_FORMAT_BYTES = {
+    "S16_LE": 2,
+    "S24_3LE": 3,
+    "S24_LE": 4,
+    "S32_LE": 4,
+    "FLOAT_LE": 4,
+}
+if SAMPLE_FORMAT not in _FORMAT_BYTES:
+    raise ValueError(
+        f"Unsupported XAIR_SAMPLE_FORMAT '{SAMPLE_FORMAT}'. "
+        f"Supported: {', '.join(_FORMAT_BYTES)}"
+    )
+BYTES_PER_SAMPLE = _FORMAT_BYTES[SAMPLE_FORMAT]
+
+# ffmpeg codec name to write per-channel splits in the same bit depth as the
+# original recording (see split_channels()).
+_FFMPEG_PCM_CODEC = {
+    "S16_LE": "pcm_s16le",
+    "S24_3LE": "pcm_s24le",
+    "S24_LE": "pcm_s24le",
+    "S32_LE": "pcm_s32le",
+    "FLOAT_LE": "pcm_f32le",
+}
+
 MIN_FREE_SECONDS = 600  # refuse to start unless this much recording time fits
 
 RECORDINGS_DIR = Path(os.environ.get("XAIR_REC_DIR", str(Path.home() / "recordings")))
@@ -285,7 +323,7 @@ def split_channels(wav_path: str, out_dir: str = None) -> list:
         cmd = [
             "ffmpeg", "-y", "-i", str(src),
             "-af", f"pan=mono|c0=c{ch}",
-            "-c:a", "pcm_s24le",
+            "-c:a", _FFMPEG_PCM_CODEC[SAMPLE_FORMAT],
             str(out_file),
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
