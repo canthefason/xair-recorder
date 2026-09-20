@@ -1,3 +1,5 @@
+<img src="assets/logo.svg" alt="X Air Recorder logo" width="120">
+
 # X Air Recorder
 
 Records all input channels of a Behringer X-Air series mixer (XR12, XR16,
@@ -96,6 +98,8 @@ Set these in the systemd unit (`scripts/install-service.sh` writes
 before running the CLI directly.
 
 ## Using it
+
+<img src="docs/screenshot-ui.png" alt="Web UI screenshot" width="360">
 
 - Web UI: `http://<device-hostname-or-ip>:8080` — Start/Stop, live status,
   and a browsable list of recordings with Download/Split/Delete.
