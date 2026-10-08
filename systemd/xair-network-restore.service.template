@@ -1,0 +1,12 @@
+[Unit]
+Description=X Air Recorder - restore venue AP mode on boot
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=__INSTALL_DIR__/network/restore-mode.sh __WIFI_DEVICE__
+
+[Install]
+WantedBy=multi-user.target

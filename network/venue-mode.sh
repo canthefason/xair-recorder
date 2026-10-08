@@ -11,6 +11,7 @@ set -euo pipefail
 WIFI_DEVICE="${1:-wlan0}"
 AP_CONN_NAME="xair-ap"
 STATE_FILE="${XAIR_NETWORK_STATE_FILE:-/var/lib/xair-recorder/previous-connection}"
+MODE_FILE="${XAIR_NETWORK_MODE_FILE:-/var/lib/xair-recorder/network-mode}"
 
 mkdir -p "$(dirname "$STATE_FILE")"
 
@@ -21,4 +22,13 @@ if [ -n "$CURRENT" ] && [ "$CURRENT" != "$AP_CONN_NAME" ]; then
 fi
 
 nmcli connection up "$AP_CONN_NAME"
+
+# Persist the chosen mode so it survives a reboot: the AP profile has
+# autoconnect=no on purpose (so a normal boot at home doesn't take over
+# wlan0), which means NetworkManager's own autoconnect has nothing to fall
+# back to if the device reboots while in venue mode away from the saved
+# network - restore-mode.sh (run at boot via systemd) reads this file to
+# bring the AP back up in that case.
+echo "venue" > "$MODE_FILE"
+
 echo "WiFi is now broadcasting the access point (was: ${CURRENT:-nothing active})."

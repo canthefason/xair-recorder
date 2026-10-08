@@ -150,6 +150,26 @@ HTTP request that triggered it, `webui.py`'s `/venue-mode` and `/home-mode`
 handlers reply to the client *first*, then run the actual switch after a
 short delay on a background timer.
 
+### Surviving a reboot in venue mode
+
+`xair-ap` is created with `autoconnect=no` on purpose — without that, a
+normal boot at home could race NetworkManager into broadcasting the AP
+instead of joining the real network. But that same setting means
+NetworkManager's own autoconnect has *nothing* to fall back to if the device
+reboots while away from its usual network: the saved network isn't in range,
+and the AP profile won't self-activate either, leaving `wlan0` associated
+with nothing at all. This was a real bug (found after an actual venue use)
+rather than a hypothetical.
+
+The fix: `venue-mode.sh`/`home-mode.sh` each write their mode ("venue" or
+"home") to `/var/lib/xair-recorder/network-mode`, and a small systemd unit
+(`xair-network-restore`, installed by `scripts/install-service.sh` alongside
+the main service) runs `network/restore-mode.sh` after `NetworkManager.service`
+on every boot — it re-activates the AP if the mode file says "venue", or
+does nothing otherwise (leaving NetworkManager's normal autoconnect to handle
+"home", which doesn't need help). It retries a few times with a short delay
+since `wlan0` may not be fully up the instant the unit starts.
+
 ## What's deliberately NOT in this repo
 
 Anything specific to one person's physical setup is kept out of version

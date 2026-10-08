@@ -69,10 +69,12 @@ This project is intentionally minimal: capture, browse, download, done.
    - **Any other X-Air device:** set two environment variables to match what
      `arecord -l` showed (see `XAIR_CARD_NAME`/`XAIR_CHANNELS` below) — no
      code changes needed.
-3. Install and enable the web service:
+3. Install and enable the web service (this also installs the boot-time
+   venue/home network-mode restore service — see Venue mode below):
    ```
    ./scripts/install-service.sh                # recordings default to ~/recordings
    # or: ./scripts/install-service.sh /mnt/recordings
+   # or: ./scripts/install-service.sh /mnt/recordings wlan1   # non-default WiFi device
    sudo systemctl start xair-recorder
    ```
 4. (Optional) Set up the standalone WiFi access point for venue use:
@@ -143,6 +145,17 @@ python3 recorder.py home-mode
 using (including any SSH session running over it) — expect that, and do it
 right before you actually need venue mode, not as a test from a remote shell
 you still need.
+
+**Surviving a reboot while in venue mode:** the AP profile is intentionally
+set to not auto-activate on its own (so a normal boot at home doesn't make
+the device broadcast its own network instead of joining the real one) —
+which means if the device reboots while away from its usual network,
+NetworkManager has nothing to fall back to and `wlan0` ends up broadcasting
+nothing at all. `scripts/install-service.sh` also installs a small
+`xair-network-restore` service that remembers whichever mode
+(`venue-mode.sh`/`home-mode.sh`) was last selected and re-applies it at boot,
+so this isn't an issue as long as that service is installed (it is by
+default — see Setup).
 
 ## Getting recordings off the device
 
