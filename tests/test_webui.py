@@ -94,6 +94,21 @@ class StartStopTests(WebUITestCase):
         self.assertEqual(status, 400)
         self.assertIn("already in progress", body["error"])
 
+    @patch("webui.recorder.start")
+    def test_start_passes_name_from_json_body(self, mock_start):
+        mock_start.return_value = {"pid": 1, "file": "xair-20260101-000000-Soundcheck.wav", "started_at": 0}
+        body = json.dumps({"name": "Soundcheck"}).encode()
+        status, resp_body = self._json_request("/start", method="POST", data=body)
+        self.assertEqual(status, 200)
+        mock_start.assert_called_once_with("Soundcheck")
+
+    @patch("webui.recorder.start")
+    def test_start_with_no_body_passes_none(self, mock_start):
+        mock_start.return_value = {"pid": 1, "file": "x.wav", "started_at": 0}
+        status, resp_body = self._json_request("/start", method="POST", data=b"")
+        self.assertEqual(status, 200)
+        mock_start.assert_called_once_with(None)
+
     @patch("webui.recorder.stop")
     def test_stop_success(self, mock_stop):
         mock_stop.return_value = {"pid": 1, "duration_seconds": 5.0}

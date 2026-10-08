@@ -26,6 +26,7 @@ PAGE = """<!doctype html>
 <style>
   body { font-family: sans-serif; max-width: 420px; margin: 2rem auto; text-align: center; }
   #logo { max-width: 220px; max-height: 140px; margin-bottom: 0.5rem; }
+  #recName { font-size: 1rem; padding: 0.5rem; width: 80%; max-width: 260px; margin: 0.5rem auto 0; display: block; box-sizing: border-box; }
   button { font-size: 1.5rem; padding: 1rem 2rem; margin: 1rem; border-radius: 0.5rem; border: none; color: white; }
   button:disabled { background: #9e9e9e; opacity: 0.6; }
   #start:not(:disabled) { background: #2e7d32; }
@@ -69,7 +70,8 @@ PAGE = """<!doctype html>
 </style>
 <img id="logo" src="/logo.svg" alt="X Air Recorder" onerror="this.style.display='none'">
 <h1>X Air Recorder</h1>
-<button id="start" onclick="post('/start')" disabled>Start</button>
+<input id="recName" type="text" placeholder="optional name, e.g. Soundcheck" maxlength="50">
+<button id="start" onclick="post('/start', { name: document.getElementById('recName').value.trim() })" disabled>Start</button>
 <button id="stop" onclick="post('/stop')" disabled>Stop</button>
 <hr>
 <button class="net" onclick="switchNetwork('venue')">Switch to Venue AP</button>
@@ -78,10 +80,16 @@ PAGE = """<!doctype html>
 <h2>Recordings</h2>
 <div id="recordings">loading...</div>
 <script>
-async function post(path) {
-  const res = await fetch(path, { method: 'POST' });
+async function post(path, body) {
+  const opts = { method: 'POST' };
+  if (body !== undefined) {
+    opts.headers = { 'Content-Type': 'application/json' };
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, opts);
   const data = await res.json();
   if (!res.ok) alert(data.error || 'request failed');
+  else if (path === '/start') document.getElementById('recName').value = '';
   refresh();
 }
 function switchNetwork(mode) {
@@ -265,10 +273,20 @@ class Handler(BaseHTTPRequestHandler):
         with file_path.open("rb") as f:
             shutil.copyfileobj(f, self.wfile)
 
+    def _read_json_body(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        if not length:
+            return {}
+        try:
+            return json.loads(self.rfile.read(length))
+        except json.JSONDecodeError:
+            return {}
+
     def do_POST(self):
         try:
             if self.path == "/start":
-                self._json(recorder.start())
+                body = self._read_json_body()
+                self._json(recorder.start(body.get("name")))
             elif self.path == "/stop":
                 self._json(recorder.stop())
             elif self.path in ("/venue-mode", "/home-mode"):

@@ -70,6 +70,24 @@ class FindCardIndexTests(RecorderTestCase):
             recorder.find_card_index("XR18")
 
 
+class SanitizeRecordingNameTests(unittest.TestCase):
+    def test_keeps_safe_characters(self):
+        self.assertEqual(recorder._sanitize_recording_name("Soundcheck_1"), "Soundcheck_1")
+
+    def test_collapses_whitespace_and_punctuation_to_hyphens(self):
+        self.assertEqual(recorder._sanitize_recording_name("Main Set!! (acoustic)"), "Main-Set-acoustic")
+
+    def test_strips_leading_and_trailing_hyphens(self):
+        self.assertEqual(recorder._sanitize_recording_name("  -- rehearsal -- "), "rehearsal")
+
+    def test_raises_when_nothing_usable_is_left(self):
+        with self.assertRaises(recorder.RecorderError):
+            recorder._sanitize_recording_name("!!!")
+
+    def test_truncates_long_names(self):
+        self.assertEqual(len(recorder._sanitize_recording_name("a" * 100)), recorder.MAX_NAME_LENGTH)
+
+
 class StartTests(RecorderTestCase):
     def _fake_proc(self, pid=None, exit_code=None, stderr=b""):
         # Use our own test-process pid by default: _read_state() filters out
@@ -120,6 +138,30 @@ class StartTests(RecorderTestCase):
         with self.assertRaises(recorder.RecorderError):
             recorder.start()
         self.assertFalse(recorder.STATE_FILE.exists())
+
+    @patch("recorder.threading.Thread")
+    @patch("recorder.subprocess.Popen")
+    @patch("recorder.find_card_index", return_value=0)
+    def test_start_appends_sanitized_name_after_timestamp(self, mock_find, mock_popen, mock_thread):
+        mock_popen.return_value = self._fake_proc()
+        state = recorder.start(name="Main Set!")
+        filename = Path(state["file"]).name
+        # timestamp must stay first so filenames keep sorting in recording order
+        self.assertRegex(filename, r"^xair-\d{8}-\d{6}-Main-Set\.wav$")
+
+    @patch("recorder.threading.Thread")
+    @patch("recorder.subprocess.Popen")
+    @patch("recorder.find_card_index", return_value=0)
+    def test_start_without_name_keeps_old_filename_format(self, mock_find, mock_popen, mock_thread):
+        mock_popen.return_value = self._fake_proc()
+        state = recorder.start()
+        filename = Path(state["file"]).name
+        self.assertRegex(filename, r"^xair-\d{8}-\d{6}\.wav$")
+
+    @patch("recorder.find_card_index", return_value=0)
+    def test_start_raises_for_unusable_name(self, mock_find):
+        with self.assertRaises(recorder.RecorderError):
+            recorder.start(name="!!!")
 
 
 class StopTests(RecorderTestCase):

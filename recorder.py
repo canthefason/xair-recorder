@@ -24,6 +24,7 @@ that's either a no-op or actively wrong, so they're fixed constants instead.
 import argparse
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -54,6 +55,9 @@ BYTES_PER_SECOND = CHANNELS * BYTES_PER_SAMPLE * SAMPLE_RATE
 NETWORK_DIR = Path(__file__).resolve().parent / "network"
 WIFI_DEVICE = os.environ.get("XAIR_WIFI_DEVICE", "wlan0")
 AP_CONN_NAME = "xair-ap"
+
+NAME_SANITIZE_RE = re.compile(r"[^A-Za-z0-9_-]+")
+MAX_NAME_LENGTH = 50
 
 
 class RecorderError(Exception):
@@ -107,7 +111,17 @@ def disk_free_bytes(path: Path) -> int:
     return shutil.disk_usage(path).free
 
 
-def start() -> dict:
+def _sanitize_recording_name(name: str) -> str:
+    """Turn user-supplied free text into a safe filename suffix: only
+    letters/digits/hyphen/underscore, everything else (spaces, punctuation)
+    collapsed to a single hyphen, leading/trailing hyphens trimmed."""
+    cleaned = NAME_SANITIZE_RE.sub("-", name.strip()).strip("-")
+    if not cleaned:
+        raise RecorderError("recording name must contain at least one letter, digit, '-' or '_'")
+    return cleaned[:MAX_NAME_LENGTH]
+
+
+def start(name: str = None) -> dict:
     RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
     if _read_state() is not None:
@@ -123,7 +137,10 @@ def start() -> dict:
         )
 
     timestamp = time.strftime("%Y%m%d-%H%M%S")
-    filename = RECORDINGS_DIR / f"xair-{timestamp}.wav"
+    # The timestamp stays first so filenames keep sorting in recording order
+    # regardless of what name is appended after it.
+    suffix = f"-{_sanitize_recording_name(name)}" if name else ""
+    filename = RECORDINGS_DIR / f"xair-{timestamp}{suffix}.wav"
 
     cmd = [
         "arecord",
@@ -374,7 +391,8 @@ def zip_recording(name: str) -> str:
 def main():
     parser = argparse.ArgumentParser(description="X Air multitrack recorder control")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("start")
+    start_p = sub.add_parser("start")
+    start_p.add_argument("--name", help="optional label appended after the timestamp")
     sub.add_parser("stop")
     sub.add_parser("status")
     split_p = sub.add_parser("split")
@@ -389,7 +407,7 @@ def main():
     args = parser.parse_args()
     try:
         if args.command == "start":
-            print(json.dumps(start(), indent=2))
+            print(json.dumps(start(args.name), indent=2))
         elif args.command == "stop":
             print(json.dumps(stop(), indent=2))
         elif args.command == "status":

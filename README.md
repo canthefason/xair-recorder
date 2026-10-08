@@ -45,6 +45,7 @@ This project is intentionally minimal: capture, browse, download, done.
   per-channel mono files on demand, or download all of them bundled into a
   single zip (channels with no detected signal are left out).
 - CLI, for scripting or SSH use: `python3 recorder.py start|stop|status|split`.
+  `start` takes an optional `--name` to label the recording (see Using it).
 - Self-hosted WiFi access point mode for use in places with no existing
   network (e.g. a venue), switchable at runtime without editing any config.
 - Runs as a `systemd` service, auto-starting on boot.
@@ -128,7 +129,12 @@ arecord -D hw:<card> --dump-hw-params -c <channels> -f <format> -r <rate> -d 1 >
 - CLI over SSH: `python3 recorder.py start|stop|status`.
 
 Recordings land in `$XAIR_REC_DIR` (default `~/recordings`) as
-`xair-YYYYMMDD-HHMMSS.wav`.
+`xair-YYYYMMDD-HHMMSS.wav`. An optional name (the "optional name" field in
+the web UI, or `--name` on the CLI) is appended *after* the timestamp, e.g.
+`xair-20260913-120000-Soundcheck.wav` — the timestamp always comes first so
+recordings still sort in the order they were made regardless of what
+they're named. Anything other than letters/digits/`-`/`_` in the name
+(spaces, punctuation) is collapsed to a hyphen.
 
 ## Venue mode (no network available)
 
