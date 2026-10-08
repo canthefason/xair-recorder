@@ -41,11 +41,10 @@ This project is intentionally minimal: capture, browse, download, done.
   interleaved 24-bit/48kHz WAV file via ALSA's `arecord` — no audio server
   (JACK/PulseAudio) required.
 - Web UI: Start/Stop (mutually exclusive while a recording is active),
-  live status, browse/download/delete recordings, split a recording into
-  per-channel mono files on demand, or download all of them bundled into a
-  single zip (channels with no detected signal are left out).
-- CLI, for scripting or SSH use: `python3 recorder.py start|stop|status|split`.
-  `start` takes an optional `--name` to label the recording (see Using it).
+  live status, browse/download/rename/delete recordings, split a recording
+  into per-channel mono files on demand, or download all of them bundled
+  into a single zip (channels with no detected signal are left out).
+- CLI, for scripting or SSH use: `python3 recorder.py start|stop|status|split|rename`.
 - Self-hosted WiFi access point mode for use in places with no existing
   network (e.g. a venue), switchable at runtime without editing any config.
 - Runs as a `systemd` service, auto-starting on boot.
@@ -125,16 +124,27 @@ arecord -D hw:<card> --dump-hw-params -c <channels> -f <format> -r <rate> -d 1 >
 <img src="docs/screenshot-ui.png" alt="Web UI screenshot" width="360">
 
 - Web UI: `http://<device-hostname-or-ip>:8080` — Start/Stop, live status,
-  and a browsable list of recordings with Download/Split/Delete.
+  and a browsable list of recordings with Download/Split/Zip/Rename/Delete.
 - CLI over SSH: `python3 recorder.py start|stop|status`.
 
 Recordings land in `$XAIR_REC_DIR` (default `~/recordings`) as
-`xair-YYYYMMDD-HHMMSS.wav`. An optional name (the "optional name" field in
-the web UI, or `--name` on the CLI) is appended *after* the timestamp, e.g.
-`xair-20260913-120000-Soundcheck.wav` — the timestamp always comes first so
-recordings still sort in the order they were made regardless of what
-they're named. Anything other than letters/digits/`-`/`_` in the name
-(spaces, punctuation) is collapsed to a hyphen.
+`xair-YYYYMMDD-HHMMSS.wav`. There's deliberately no way to name one before
+or while it's recording — you don't usually know yet what a take should be
+called, and it's one less thing to do with your hands full plugging in a
+mixer. Instead, rename it afterwards: "Rename" in the web UI, or
+
+```
+python3 recorder.py rename /path/to/xair-20260913-120000.wav --name "Soundcheck"
+```
+
+Either way, the label is appended *after* the timestamp, e.g.
+`xair-20260913-120000-Soundcheck.wav` — the timestamp itself is never
+touched, so recordings keep sorting in the order they were made no matter
+what they're named (or renamed again later). Anything other than
+letters/digits/`-`/`_` in the name (spaces, punctuation) is collapsed to a
+hyphen; renaming with a blank name clears the label back to just the
+timestamp. Renaming drops any cached channel-split/zip for that recording
+(they're cheap to regenerate on the next Split/Zip click).
 
 ## Venue mode (no network available)
 

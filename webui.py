@@ -26,7 +26,6 @@ PAGE = """<!doctype html>
 <style>
   body { font-family: sans-serif; max-width: 420px; margin: 2rem auto; text-align: center; }
   #logo { max-width: 220px; max-height: 140px; margin-bottom: 0.5rem; }
-  #recName { font-size: 1rem; padding: 0.5rem; width: 80%; max-width: 260px; margin: 0.5rem auto 0; display: block; box-sizing: border-box; }
   button { font-size: 1.5rem; padding: 1rem 2rem; margin: 1rem; border-radius: 0.5rem; border: none; color: white; }
   button:disabled { background: #9e9e9e; opacity: 0.6; }
   #start:not(:disabled) { background: #2e7d32; }
@@ -44,7 +43,8 @@ PAGE = """<!doctype html>
   .rec-row .actions a.dl-btn,
   .rec-row .actions button.del,
   .rec-row .actions button.split-btn,
-  .rec-row .actions button.zip-btn {
+  .rec-row .actions button.zip-btn,
+  .rec-row .actions button.rename-btn {
     display: inline-block;
     box-sizing: border-box;
     text-decoration: none;
@@ -63,6 +63,7 @@ PAGE = """<!doctype html>
   .rec-row .actions button.split-btn:disabled { background: #b39ddb !important; cursor: default; }
   .rec-row .actions button.zip-btn { background: #00695c !important; }
   .rec-row .actions button.zip-btn:disabled { background: #80cbc4 !important; cursor: default; }
+  .rec-row .actions button.rename-btn { background: #ef6c00 !important; }
   .rec-row .actions button.del { background: #c62828 !important; }
   .channels-list { margin: 0 0 0.6rem 0; padding-left: 0.6rem; border-left: 2px solid #ddd; }
   .channels-list .ch-row { display: flex; justify-content: space-between; padding: 0.2rem 0; font-size: 0.85rem; }
@@ -70,8 +71,7 @@ PAGE = """<!doctype html>
 </style>
 <img id="logo" src="/logo.svg" alt="X Air Recorder" onerror="this.style.display='none'">
 <h1>X Air Recorder</h1>
-<input id="recName" type="text" placeholder="optional name, e.g. Soundcheck" maxlength="50">
-<button id="start" onclick="post('/start', { name: document.getElementById('recName').value.trim() })" disabled>Start</button>
+<button id="start" onclick="post('/start')" disabled>Start</button>
 <button id="stop" onclick="post('/stop')" disabled>Stop</button>
 <hr>
 <button class="net" onclick="switchNetwork('venue')">Switch to Venue AP</button>
@@ -89,7 +89,6 @@ async function post(path, body) {
   const res = await fetch(path, opts);
   const data = await res.json();
   if (!res.ok) alert(data.error || 'request failed');
-  else if (path === '/start') document.getElementById('recName').value = '';
   refresh();
 }
 function switchNetwork(mode) {
@@ -156,6 +155,7 @@ async function refreshRecordings() {
         <a class="dl-btn" href="/recordings/${encodeURIComponent(f.name)}" download>Download</a>
         <button class="split-btn" data-name="${escapeHtml(f.name)}">Split channels</button>
         <button class="zip-btn" data-name="${escapeHtml(f.name)}">Zip channels</button>
+        <button class="rename-btn" data-name="${escapeHtml(f.name)}">Rename</button>
         <button class="del" data-name="${escapeHtml(f.name)}">Delete</button>
       </span>
     </div>
@@ -195,6 +195,20 @@ document.getElementById('recordings').addEventListener('click', async (e) => {
       btn.disabled = false;
       btn.textContent = 'Zip channels';
     }
+    return;
+  }
+  if (e.target.matches('.rename-btn')) {
+    const newLabel = prompt('New name (letters/digits/-/_ only; blank clears it):', '');
+    if (newLabel === null) return;  // cancelled
+    const res = await fetch(`/recordings/${encodeURIComponent(name)}/rename`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newLabel.trim() }),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || 'rename failed'); return; }
+    delete splitResults[name];
+    refreshRecordings();
     return;
   }
   if (!e.target.matches('.del')) return;
@@ -285,8 +299,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             if self.path == "/start":
-                body = self._read_json_body()
-                self._json(recorder.start(body.get("name")))
+                self._json(recorder.start())
             elif self.path == "/stop":
                 self._json(recorder.stop())
             elif self.path in ("/venue-mode", "/home-mode"):
@@ -305,6 +318,10 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path.startswith("/recordings/") and self.path.endswith("/zip"):
                 name = unquote(self.path[len("/recordings/"):-len("/zip")])
                 self._json({"file": recorder.zip_recording(name)})
+            elif self.path.startswith("/recordings/") and self.path.endswith("/rename"):
+                name = unquote(self.path[len("/recordings/"):-len("/rename")])
+                body = self._read_json_body()
+                self._json({"name": recorder.rename_recording(name, body.get("name"))})
             else:
                 self._json({"error": "not found"}, 404)
         except recorder.RecorderError as exc:

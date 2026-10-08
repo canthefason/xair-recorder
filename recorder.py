@@ -58,6 +58,10 @@ AP_CONN_NAME = "xair-ap"
 
 NAME_SANITIZE_RE = re.compile(r"[^A-Za-z0-9_-]+")
 MAX_NAME_LENGTH = 50
+# Matches a recording's filename stem, capturing the fixed timestamp part so
+# rename_recording() can replace the label after it without disturbing the
+# timestamp recordings are expected to sort by.
+RECORDING_STEM_RE = re.compile(r"^xair-(\d{8}-\d{6})(?:-.*)?$")
 
 
 class RecorderError(Exception):
@@ -121,7 +125,7 @@ def _sanitize_recording_name(name: str) -> str:
     return cleaned[:MAX_NAME_LENGTH]
 
 
-def start(name: str = None) -> dict:
+def start() -> dict:
     RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
     if _read_state() is not None:
@@ -137,10 +141,7 @@ def start(name: str = None) -> dict:
         )
 
     timestamp = time.strftime("%Y%m%d-%H%M%S")
-    # The timestamp stays first so filenames keep sorting in recording order
-    # regardless of what name is appended after it.
-    suffix = f"-{_sanitize_recording_name(name)}" if name else ""
-    filename = RECORDINGS_DIR / f"xair-{timestamp}{suffix}.wav"
+    filename = RECORDINGS_DIR / f"xair-{timestamp}.wav"
 
     cmd = [
         "arecord",
@@ -270,6 +271,48 @@ def delete_recording(name: str) -> None:
     file_path.unlink()
 
 
+def rename_recording(old_name: str, new_label: str = None) -> str:
+    """Rename a recording's label while keeping its original timestamp
+    prefix fixed, so renaming never changes the order recordings sort in.
+    Pass new_label=None (or "") to clear a label back to just the timestamp.
+
+    Any cached per-channel split or zip bundle for the old name is dropped
+    rather than renamed along with it - they're cheap to regenerate under
+    the new name on the next Split/Zip click, which is simpler than keeping
+    every file inside them in sync with a new stem."""
+    safe_old = Path(old_name).name
+    old_path = RECORDINGS_DIR / safe_old
+    if safe_old != old_name or old_path.suffix.lower() != ".wav" or not old_path.is_file():
+        raise RecorderError(f"recording not found: {old_name}")
+
+    state = _read_state()
+    if state is not None and Path(state["file"]).name == safe_old:
+        raise RecorderError("cannot rename a recording that is currently in progress")
+
+    match = RECORDING_STEM_RE.match(old_path.stem)
+    if not match:
+        raise RecorderError(f"unrecognized recording filename: {old_name}")
+    timestamp = match.group(1)
+
+    suffix = f"-{_sanitize_recording_name(new_label)}" if new_label else ""
+    new_path = RECORDINGS_DIR / f"xair-{timestamp}{suffix}.wav"
+
+    if new_path != old_path and new_path.exists():
+        raise RecorderError(f"a recording named {new_path.name} already exists")
+
+    old_stem = old_path.stem
+    old_path.rename(new_path)
+
+    channels_dir = RECORDINGS_DIR / f"{old_stem}-channels"
+    if channels_dir.is_dir():
+        shutil.rmtree(channels_dir)
+    zip_path = RECORDINGS_DIR / f"{old_stem}-channels.zip"
+    if zip_path.is_file():
+        zip_path.unlink()
+
+    return new_path.name
+
+
 def resolve_recording_path(rel_path: str) -> Path:
     """Resolve a name/relative-path (top-level recording, a channels/ subfile,
     or a zipped channel bundle) to a real file inside RECORDINGS_DIR, refusing
@@ -391,8 +434,7 @@ def zip_recording(name: str) -> str:
 def main():
     parser = argparse.ArgumentParser(description="X Air multitrack recorder control")
     sub = parser.add_subparsers(dest="command", required=True)
-    start_p = sub.add_parser("start")
-    start_p.add_argument("--name", help="optional label appended after the timestamp")
+    sub.add_parser("start")
     sub.add_parser("stop")
     sub.add_parser("status")
     split_p = sub.add_parser("split")
@@ -401,13 +443,16 @@ def main():
     zip_p = sub.add_parser("zip")
     zip_p.add_argument("file")
     zip_p.add_argument("--out-dir")
+    rename_p = sub.add_parser("rename")
+    rename_p.add_argument("file")
+    rename_p.add_argument("--name", help="new label; omit to clear back to just the timestamp")
     sub.add_parser("venue-mode")
     sub.add_parser("home-mode")
 
     args = parser.parse_args()
     try:
         if args.command == "start":
-            print(json.dumps(start(args.name), indent=2))
+            print(json.dumps(start(), indent=2))
         elif args.command == "stop":
             print(json.dumps(stop(), indent=2))
         elif args.command == "status":
@@ -416,6 +461,8 @@ def main():
             print(json.dumps(split_channels(args.file, args.out_dir), indent=2))
         elif args.command == "zip":
             print(zip_channels(args.file, args.out_dir))
+        elif args.command == "rename":
+            print(rename_recording(args.file, args.name))
         elif args.command == "venue-mode":
             switch_network("venue")
             print("switched to venue AP")

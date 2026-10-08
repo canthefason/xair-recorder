@@ -94,21 +94,6 @@ class StartStopTests(WebUITestCase):
         self.assertEqual(status, 400)
         self.assertIn("already in progress", body["error"])
 
-    @patch("webui.recorder.start")
-    def test_start_passes_name_from_json_body(self, mock_start):
-        mock_start.return_value = {"pid": 1, "file": "xair-20260101-000000-Soundcheck.wav", "started_at": 0}
-        body = json.dumps({"name": "Soundcheck"}).encode()
-        status, resp_body = self._json_request("/start", method="POST", data=body)
-        self.assertEqual(status, 200)
-        mock_start.assert_called_once_with("Soundcheck")
-
-    @patch("webui.recorder.start")
-    def test_start_with_no_body_passes_none(self, mock_start):
-        mock_start.return_value = {"pid": 1, "file": "x.wav", "started_at": 0}
-        status, resp_body = self._json_request("/start", method="POST", data=b"")
-        self.assertEqual(status, 200)
-        mock_start.assert_called_once_with(None)
-
     @patch("webui.recorder.stop")
     def test_stop_success(self, mock_stop):
         mock_stop.return_value = {"pid": 1, "duration_seconds": 5.0}
@@ -200,6 +185,31 @@ class RecordingsRoutesTests(WebUITestCase):
             self.assertEqual(headers.get("Content-Type"), "application/zip")
         finally:
             tmp.unlink()
+
+    @patch("webui.recorder.rename_recording")
+    def test_rename_recording_passes_name_from_json_body(self, mock_rename):
+        mock_rename.return_value = "xair-20260101-120000-NewLabel.wav"
+        body = json.dumps({"name": "NewLabel"}).encode()
+        status, resp_body = self._json_request(
+            "/recordings/xair-20260101-120000.wav/rename", method="POST", data=body
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(resp_body["name"], "xair-20260101-120000-NewLabel.wav")
+        mock_rename.assert_called_once_with("xair-20260101-120000.wav", "NewLabel")
+
+    @patch("webui.recorder.rename_recording")
+    def test_rename_recording_with_no_body_passes_none(self, mock_rename):
+        mock_rename.return_value = "xair-20260101-120000.wav"
+        status, resp_body = self._json_request(
+            "/recordings/xair-20260101-120000.wav/rename", method="POST", data=b""
+        )
+        self.assertEqual(status, 200)
+        mock_rename.assert_called_once_with("xair-20260101-120000.wav", None)
+
+    @patch("webui.recorder.rename_recording", side_effect=recorder.RecorderError("recording not found: a.wav"))
+    def test_rename_missing_recording_returns_400(self, mock_rename):
+        status, body = self._json_request("/recordings/a.wav/rename", method="POST", data=b"")
+        self.assertEqual(status, 400)
 
 
 class NetworkSwitchTests(WebUITestCase):

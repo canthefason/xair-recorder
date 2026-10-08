@@ -142,26 +142,11 @@ class StartTests(RecorderTestCase):
     @patch("recorder.threading.Thread")
     @patch("recorder.subprocess.Popen")
     @patch("recorder.find_card_index", return_value=0)
-    def test_start_appends_sanitized_name_after_timestamp(self, mock_find, mock_popen, mock_thread):
-        mock_popen.return_value = self._fake_proc()
-        state = recorder.start(name="Main Set!")
-        filename = Path(state["file"]).name
-        # timestamp must stay first so filenames keep sorting in recording order
-        self.assertRegex(filename, r"^xair-\d{8}-\d{6}-Main-Set\.wav$")
-
-    @patch("recorder.threading.Thread")
-    @patch("recorder.subprocess.Popen")
-    @patch("recorder.find_card_index", return_value=0)
-    def test_start_without_name_keeps_old_filename_format(self, mock_find, mock_popen, mock_thread):
+    def test_start_filename_has_no_label(self, mock_find, mock_popen, mock_thread):
         mock_popen.return_value = self._fake_proc()
         state = recorder.start()
         filename = Path(state["file"]).name
         self.assertRegex(filename, r"^xair-\d{8}-\d{6}\.wav$")
-
-    @patch("recorder.find_card_index", return_value=0)
-    def test_start_raises_for_unusable_name(self, mock_find):
-        with self.assertRaises(recorder.RecorderError):
-            recorder.start(name="!!!")
 
 
 class StopTests(RecorderTestCase):
@@ -274,6 +259,68 @@ class ListDeleteResolveTests(RecorderTestCase):
     def test_resolve_recording_path_rejects_missing(self):
         with self.assertRaises(recorder.RecorderError):
             recorder.resolve_recording_path("missing.wav")
+
+
+class RenameRecordingTests(RecorderTestCase):
+    def test_renames_adding_a_label(self):
+        self._touch("xair-20260101-120000.wav")
+        new_name = recorder.rename_recording("xair-20260101-120000.wav", "Main Set!")
+        self.assertEqual(new_name, "xair-20260101-120000-Main-Set.wav")
+        self.assertTrue((recorder.RECORDINGS_DIR / new_name).is_file())
+        self.assertFalse((recorder.RECORDINGS_DIR / "xair-20260101-120000.wav").exists())
+
+    def test_renames_replacing_an_existing_label(self):
+        self._touch("xair-20260101-120000-OldLabel.wav")
+        new_name = recorder.rename_recording("xair-20260101-120000-OldLabel.wav", "NewLabel")
+        self.assertEqual(new_name, "xair-20260101-120000-NewLabel.wav")
+
+    def test_blank_name_clears_the_label(self):
+        self._touch("xair-20260101-120000-OldLabel.wav")
+        new_name = recorder.rename_recording("xair-20260101-120000-OldLabel.wav", "")
+        self.assertEqual(new_name, "xair-20260101-120000.wav")
+
+    def test_timestamp_is_never_changed(self):
+        self._touch("xair-20260101-120000.wav")
+        new_name = recorder.rename_recording("xair-20260101-120000.wav", "Set Two")
+        self.assertTrue(new_name.startswith("xair-20260101-120000-"))
+
+    def test_raises_for_missing_source(self):
+        with self.assertRaises(recorder.RecorderError):
+            recorder.rename_recording("nope.wav", "Label")
+
+    def test_blocks_traversal(self):
+        with self.assertRaises(recorder.RecorderError):
+            recorder.rename_recording("../../etc/passwd", "Label")
+
+    def test_raises_for_unrecognized_filename(self):
+        self._touch("not-an-xair-recording.wav")
+        with self.assertRaises(recorder.RecorderError):
+            recorder.rename_recording("not-an-xair-recording.wav", "Label")
+
+    def test_raises_when_target_name_already_taken(self):
+        self._touch("xair-20260101-120000.wav")
+        self._touch("xair-20260101-120000-Taken.wav")
+        with self.assertRaises(recorder.RecorderError):
+            recorder.rename_recording("xair-20260101-120000.wav", "Taken")
+
+    def test_blocks_renaming_in_progress_recording(self):
+        p = self._touch("xair-20260101-120000.wav")
+        recorder._write_state({"pid": os.getpid(), "file": str(p), "started_at": time.time()})
+        with self.assertRaises(recorder.RecorderError):
+            recorder.rename_recording("xair-20260101-120000.wav", "Label")
+
+    def test_drops_stale_split_and_zip_cache_on_rename(self):
+        self._touch("xair-20260101-120000.wav")
+        channels_dir = recorder.RECORDINGS_DIR / "xair-20260101-120000-channels"
+        channels_dir.mkdir()
+        (channels_dir / "xair-20260101-120000-ch01.wav").write_bytes(b"x")
+        zip_path = recorder.RECORDINGS_DIR / "xair-20260101-120000-channels.zip"
+        zip_path.write_bytes(b"pk")
+
+        recorder.rename_recording("xair-20260101-120000.wav", "Renamed")
+
+        self.assertFalse(channels_dir.exists())
+        self.assertFalse(zip_path.exists())
 
 
 class SplitChannelsTests(RecorderTestCase):

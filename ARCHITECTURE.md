@@ -147,6 +147,27 @@ e.g. detection broke) both fail open to "include everything" — the zip is
 for convenience, not the only copy, but it should never end up missing
 something that was actually recorded.
 
+## Renaming after the fact, not naming up front
+
+There's no way to name a recording before or while it's running - by the
+time you know what a take should be called, it's usually already over, and
+asking for a name up front is one more thing to do with your hands full
+plugging in a mixer. So naming is a post-hoc rename instead.
+
+`rename_recording()` parses a recording's existing filename with
+`RECORDING_STEM_RE` (`xair-<timestamp>` optionally followed by `-<label>`)
+to pull out just the timestamp, then rebuilds the filename as
+`xair-<timestamp>-<new label>.wav` - the timestamp itself is never touched,
+so renaming (possibly more than once) never changes the order recordings
+sort in. The label goes through the same `_sanitize_recording_name()` used
+elsewhere, and a blank label clears it back to just the timestamp.
+
+A recording's cached channel-split folder and zip bundle (if any) are
+dropped, not renamed, since the files inside them bake in the *old* stem -
+keeping those in sync would mean renaming every file inside the split
+folder too. Simpler to just let the next Split/Zip click regenerate them
+under the new name.
+
 ## WiFi mode switching (venue vs. home)
 
 Live-sound X-Air setups often end up somewhere with no existing network. The
