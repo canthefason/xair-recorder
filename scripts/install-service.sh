@@ -1,7 +1,7 @@
 #!/bin/bash
-# Generates systemd/xair-recorder.service (and xair-network-restore.service)
-# from their templates using the current user and install location, then
-# installs and enables both.
+# Generates systemd/xair-recorder.service, xair-network-restore.service, and
+# xair-network-watchdog.service from their templates using the current user
+# and install location, then installs and enables all three.
 #
 # Run this ON the target device, from inside the repo checkout, e.g.:
 #   ./scripts/install-service.sh
@@ -23,20 +23,31 @@ sed \
   -e "s#__RECORDINGS_DIR__#${RECORDINGS_DIR}#g" \
   "$TEMPLATE" | sudo tee "$OUT" > /dev/null
 
-# Only needed if the venue/home AP switching feature (network/*.sh) is in
-# use - harmless to install unconditionally, since restore-mode.sh no-ops
-# unless venue mode was actually last selected.
-NET_TEMPLATE="$INSTALL_DIR/systemd/xair-network-restore.service.template"
-NET_OUT="/etc/systemd/system/xair-network-restore.service"
+# Both of the following are only needed if the venue/home AP switching
+# feature (network/*.sh) is in use - harmless to install unconditionally,
+# since both no-op (or just log a retryable failure) if the xair-ap profile
+# was never set up via setup-ap-profile.sh.
+RESTORE_TEMPLATE="$INSTALL_DIR/systemd/xair-network-restore.service.template"
+RESTORE_OUT="/etc/systemd/system/xair-network-restore.service"
 
 sed \
   -e "s#__INSTALL_DIR__#${INSTALL_DIR}#g" \
   -e "s#__WIFI_DEVICE__#${WIFI_DEVICE}#g" \
-  "$NET_TEMPLATE" | sudo tee "$NET_OUT" > /dev/null
+  "$RESTORE_TEMPLATE" | sudo tee "$RESTORE_OUT" > /dev/null
+
+WATCHDOG_TEMPLATE="$INSTALL_DIR/systemd/xair-network-watchdog.service.template"
+WATCHDOG_OUT="/etc/systemd/system/xair-network-watchdog.service"
+
+sed \
+  -e "s#__INSTALL_DIR__#${INSTALL_DIR}#g" \
+  -e "s#__WIFI_DEVICE__#${WIFI_DEVICE}#g" \
+  "$WATCHDOG_TEMPLATE" | sudo tee "$WATCHDOG_OUT" > /dev/null
 
 sudo systemctl daemon-reload
 sudo systemctl enable xair-recorder xair-network-restore
+sudo systemctl enable --now xair-network-watchdog
 
 echo "Installed $OUT for user '$SERVICE_USER', app dir '$INSTALL_DIR', recordings '$RECORDINGS_DIR'."
-echo "Installed $NET_OUT for WiFi device '$WIFI_DEVICE' - restores venue AP mode on boot if it was last selected."
+echo "Installed $RESTORE_OUT - restores venue AP mode on boot if it was last selected."
+echo "Installed and started $WATCHDOG_OUT - auto-switches to venue AP after the WiFi device ($WIFI_DEVICE) has had no network for ~60s."
 echo "Start the recorder with: sudo systemctl start xair-recorder"

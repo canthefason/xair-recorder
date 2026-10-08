@@ -70,7 +70,8 @@ This project is intentionally minimal: capture, browse, download, done.
      `arecord -l` showed (see `XAIR_CARD_NAME`/`XAIR_CHANNELS` below) — no
      code changes needed.
 3. Install and enable the web service (this also installs the boot-time
-   venue/home network-mode restore service — see Venue mode below):
+   network-mode restore service and the auto-switch watchdog — see Venue
+   mode below):
    ```
    ./scripts/install-service.sh                # recordings default to ~/recordings
    # or: ./scripts/install-service.sh /mnt/recordings
@@ -94,10 +95,15 @@ This project is intentionally minimal: capture, browse, download, done.
 | `XAIR_CHANNELS` | `18` | Number of channels that card sends over USB |
 | `XAIR_REC_DIR` | `~/recordings` | Where recordings are written |
 | `XAIR_WIFI_DEVICE` | `wlan0` | WiFi interface used for venue/home switching |
+| `XAIR_WATCHDOG_INTERVAL` | `15` | Seconds between the watchdog's connectivity checks |
+| `XAIR_WATCHDOG_THRESHOLD` | `4` | Consecutive failed checks before auto-switching to venue AP |
 
 Set these in the systemd unit (`scripts/install-service.sh` writes
 `XAIR_REC_DIR` there already; add the others the same way) or export them
-before running the CLI directly.
+before running the CLI directly. To tune the watchdog's timing, add
+`Environment=` lines to `/etc/systemd/system/xair-network-watchdog.service`
+(same pattern as `XAIR_REC_DIR` in the main service), then
+`sudo systemctl daemon-reload && sudo systemctl restart xair-network-watchdog`.
 
 Sample format (`S24_3LE`) and rate (`48000`Hz) are fixed constants in
 `recorder.py`, not environment variables — verified against a real XR18,
@@ -125,8 +131,20 @@ Recordings land in `$XAIR_REC_DIR` (default `~/recordings`) as
 
 ## Venue mode (no network available)
 
-Once the AP profile is set up (see above), switch into it from the web UI
-("Switch to Venue AP") or the CLI/SSH:
+Once the AP profile is set up (see above), **you don't have to remember to
+switch manually** — a small watchdog (`xair-network-watchdog`, installed and
+started automatically by `scripts/install-service.sh`) checks the WiFi
+connection periodically and switches into venue AP mode on its own once it's
+had no network for about a minute (default: 4 checks, 15s apart — tune with
+`XAIR_WATCHDOG_INTERVAL`/`XAIR_WATCHDOG_THRESHOLD`). Just take the device
+with you; it notices it's left the usual network and falls back by itself.
+
+It does **not** auto-switch back to home when a network becomes reachable
+again — that could silently disconnect anyone using the venue AP mid-show
+with no warning. Switching back is always a deliberate action.
+
+You can still switch manually from the web UI ("Switch to Venue AP") or the
+CLI/SSH if you'd rather not wait for the watchdog:
 
 ```
 python3 recorder.py venue-mode

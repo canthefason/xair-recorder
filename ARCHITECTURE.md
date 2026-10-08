@@ -170,6 +170,36 @@ does nothing otherwise (leaving NetworkManager's normal autoconnect to handle
 "home", which doesn't need help). It retries a few times with a short delay
 since `wlan0` may not be fully up the instant the unit starts.
 
+Verified on real hardware: switched to venue mode, power-cycled the device,
+and confirmed the AP came back up on its own with no manual intervention.
+
+### Auto-switching into venue mode (no manual step required)
+
+The reboot fix above only helps *after* venue mode has already been
+selected once — it doesn't help if someone simply leaves the house still in
+"home" mode, in which case the device just sits trying to join a network
+that's out of range, same as before any of this existed.
+
+`network-watchdog.sh` (run continuously via the `xair-network-watchdog`
+systemd service, `Restart=always`) closes that gap: every
+`XAIR_WATCHDOG_INTERVAL` seconds it checks whether the WiFi device has any
+active connection (`nmcli device status`), and after
+`XAIR_WATCHDOG_THRESHOLD` consecutive failed checks (default: ~60s of no
+network) it calls `venue-mode.sh` itself. The debounce exists so a brief
+WiFi hiccup at home doesn't trip it.
+
+It deliberately does **not** reverse this automatically — once a network
+becomes reachable again, nothing switches back on its own, because that
+would be indistinguishable from "the device briefly saw its home network's
+SSID from the venue parking lot" and would silently disconnect anyone using
+the venue AP at the time. Switching back to home stays a deliberate action
+(web UI / `home-mode.sh`), exactly as before.
+
+The watchdog checks `network-mode` itself (skipping its logic entirely once
+already in "venue") so it never fights with a manual switch — whichever
+reaches `venue-mode.sh` first "wins" and the other just sees mode=venue on
+its next check and no-ops.
+
 ## What's deliberately NOT in this repo
 
 Anything specific to one person's physical setup is kept out of version
