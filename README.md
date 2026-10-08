@@ -42,7 +42,8 @@ This project is intentionally minimal: capture, browse, download, done.
   (JACK/PulseAudio) required.
 - Web UI: Start/Stop (mutually exclusive while a recording is active),
   live status, browse/download/delete recordings, split a recording into
-  per-channel mono files on demand.
+  per-channel mono files on demand, or download all of them bundled into a
+  single zip (channels with no detected signal are left out).
 - CLI, for scripting or SSH use: `python3 recorder.py start|stop|status|split`.
 - Self-hosted WiFi access point mode for use in places with no existing
   network (e.g. a venue), switchable at runtime without editing any config.
@@ -189,6 +190,20 @@ channels" button in the web UI, or:
 ```
 python3 recorder.py split /path/to/xair-20260913-120000.wav
 ```
+
+To get all the per-channel files as a single download instead of one at a
+time, use "Zip channels" in the web UI, or:
+
+```
+python3 recorder.py zip /path/to/xair-20260913-120000.wav
+```
+
+This splits (reusing the cache above if it's already been split) and bundles
+the per-channel files into one `<name>-channels.zip`. Channels with no
+detected signal (nothing was plugged into that input) are left out of the
+zip to keep it smaller — based on peak level via `ffmpeg`'s `volumedetect`,
+not anything mixer-specific, so there's no risk of a quiet-but-real
+channel being silently excluded by name or position.
 
 ## Development
 

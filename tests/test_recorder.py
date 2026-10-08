@@ -317,6 +317,75 @@ class SplitRecordingCachingTests(RecorderTestCase):
             recorder.split_recording("../../etc/passwd")
 
 
+class ZipChannelsTests(RecorderTestCase):
+    def _write_channel_files(self, stem, mtime=None):
+        channels_dir = recorder.RECORDINGS_DIR / f"{stem}-channels"
+        channels_dir.mkdir(parents=True, exist_ok=True)
+        files = []
+        for i in range(recorder.CHANNELS):
+            p = channels_dir / f"{stem}-ch{i + 1:02d}.wav"
+            p.write_bytes(b"x")
+            if mtime is not None:
+                os.utime(p, (mtime, mtime))
+            files.append(p)
+        return files
+
+    @patch("recorder.subprocess.run")
+    def test_channel_has_signal_parses_max_volume(self, mock_run):
+        mock_run.return_value = MagicMock(stderr="[Parsed_volumedetect_0]\nmax_volume: -3.2 dB\n")
+        self.assertTrue(recorder._channel_has_signal(Path("ch01.wav")))
+
+    @patch("recorder.subprocess.run")
+    def test_channel_has_signal_false_when_silent(self, mock_run):
+        mock_run.return_value = MagicMock(stderr="max_volume: -90.0 dB\n")
+        self.assertFalse(recorder._channel_has_signal(Path("ch02.wav")))
+
+    @patch("recorder.subprocess.run")
+    def test_channel_has_signal_defaults_true_when_unparsable(self, mock_run):
+        mock_run.return_value = MagicMock(stderr="no useful output here\n")
+        self.assertTrue(recorder._channel_has_signal(Path("ch03.wav")))
+
+    @patch("recorder._channel_has_signal")
+    def test_zip_recording_excludes_silent_channels(self, mock_signal):
+        self._touch("show.wav")
+        files = self._write_channel_files("show")
+        # only the first channel "has signal" - the rest should be left out
+        mock_signal.side_effect = lambda p: p == files[0]
+        rel = recorder.zip_recording("show.wav")
+        self.assertEqual(rel, "show-channels.zip")
+        import zipfile
+        with zipfile.ZipFile(recorder.RECORDINGS_DIR / rel) as zf:
+            self.assertEqual(zf.namelist(), [files[0].name])
+
+    @patch("recorder._channel_has_signal", return_value=False)
+    def test_zip_recording_keeps_all_if_everything_looks_silent(self, mock_signal):
+        self._touch("show.wav")
+        files = self._write_channel_files("show")
+        rel = recorder.zip_recording("show.wav")
+        import zipfile
+        with zipfile.ZipFile(recorder.RECORDINGS_DIR / rel) as zf:
+            self.assertEqual(len(zf.namelist()), len(files))
+
+    @patch("recorder._build_zip")
+    @patch("recorder._channel_has_signal")
+    def test_zip_recording_reuses_fresh_cache(self, mock_signal, mock_build_zip):
+        self._touch("show.wav")
+        self._write_channel_files("show")
+        zip_path = recorder.RECORDINGS_DIR / "show-channels.zip"
+        zip_path.write_bytes(b"pk")
+        rel = recorder.zip_recording("show.wav")
+        self.assertEqual(rel, "show-channels.zip")
+        mock_build_zip.assert_not_called()
+
+    def test_zip_recording_raises_for_missing_source(self):
+        with self.assertRaises(recorder.RecorderError):
+            recorder.zip_recording("nope.wav")
+
+    def test_zip_recording_blocks_traversal(self):
+        with self.assertRaises(recorder.RecorderError):
+            recorder.zip_recording("../../etc/passwd")
+
+
 class NetworkTests(RecorderTestCase):
     @patch("recorder.subprocess.run")
     def test_network_mode_home_for_any_non_ap_connection(self, mock_run):

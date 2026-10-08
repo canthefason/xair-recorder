@@ -161,6 +161,31 @@ class RecordingsRoutesTests(WebUITestCase):
         status, body = self._json_request("/recordings/a.wav/split", method="POST", data=b"")
         self.assertEqual(status, 400)
 
+    @patch("webui.recorder.zip_recording")
+    def test_zip_recording(self, mock_zip):
+        mock_zip.return_value = "a-channels.zip"
+        status, body = self._json_request("/recordings/a.wav/zip", method="POST", data=b"")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["file"], "a-channels.zip")
+        mock_zip.assert_called_once_with("a.wav")
+
+    @patch("webui.recorder.zip_recording", side_effect=recorder.RecorderError("recording not found: a.wav"))
+    def test_zip_missing_recording_returns_400(self, mock_zip):
+        status, body = self._json_request("/recordings/a.wav/zip", method="POST", data=b"")
+        self.assertEqual(status, 400)
+
+    @patch("webui.recorder.resolve_recording_path")
+    def test_download_zip_has_zip_content_type(self, mock_resolve):
+        tmp = Path(tempfile.mkstemp(suffix=".zip")[1])
+        try:
+            tmp.write_bytes(b"PK-fake-zip-data")
+            mock_resolve.return_value = tmp
+            status, headers, body = self._request(f"/recordings/{tmp.name}")
+            self.assertEqual(status, 200)
+            self.assertEqual(headers.get("Content-Type"), "application/zip")
+        finally:
+            tmp.unlink()
+
 
 class NetworkSwitchTests(WebUITestCase):
     @patch("webui.threading.Timer")

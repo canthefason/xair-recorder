@@ -42,7 +42,8 @@ PAGE = """<!doctype html>
   .rec-row .actions { display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
   .rec-row .actions a.dl-btn,
   .rec-row .actions button.del,
-  .rec-row .actions button.split-btn {
+  .rec-row .actions button.split-btn,
+  .rec-row .actions button.zip-btn {
     display: inline-block;
     box-sizing: border-box;
     text-decoration: none;
@@ -59,6 +60,8 @@ PAGE = """<!doctype html>
   .rec-row .actions a.dl-btn { background: #1565c0 !important; }
   .rec-row .actions button.split-btn { background: #6a1b9a !important; }
   .rec-row .actions button.split-btn:disabled { background: #b39ddb !important; cursor: default; }
+  .rec-row .actions button.zip-btn { background: #00695c !important; }
+  .rec-row .actions button.zip-btn:disabled { background: #80cbc4 !important; cursor: default; }
   .rec-row .actions button.del { background: #c62828 !important; }
   .channels-list { margin: 0 0 0.6rem 0; padding-left: 0.6rem; border-left: 2px solid #ddd; }
   .channels-list .ch-row { display: flex; justify-content: space-between; padding: 0.2rem 0; font-size: 0.85rem; }
@@ -144,6 +147,7 @@ async function refreshRecordings() {
       <span class="actions">
         <a class="dl-btn" href="/recordings/${encodeURIComponent(f.name)}" download>Download</a>
         <button class="split-btn" data-name="${escapeHtml(f.name)}">Split channels</button>
+        <button class="zip-btn" data-name="${escapeHtml(f.name)}">Zip channels</button>
         <button class="del" data-name="${escapeHtml(f.name)}">Delete</button>
       </span>
     </div>
@@ -167,6 +171,21 @@ document.getElementById('recordings').addEventListener('click', async (e) => {
     } finally {
       btn.disabled = false;
       btn.textContent = 'Split channels';
+    }
+    return;
+  }
+  if (e.target.matches('.zip-btn')) {
+    const btn = e.target;
+    btn.disabled = true;
+    btn.textContent = 'Zipping...';
+    try {
+      const res = await fetch(`/recordings/${encodeURIComponent(name)}/zip`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) { alert(data.error || 'zip failed'); return; }
+      window.location.href = `/recordings/${encodeURIComponent(data.file)}`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Zip channels';
     }
     return;
   }
@@ -236,9 +255,10 @@ class Handler(BaseHTTPRequestHandler):
         except recorder.RecorderError as exc:
             self._json({"error": str(exc)}, 404)
             return
+        content_type = "application/zip" if file_path.suffix.lower() == ".zip" else "audio/wav"
         size = file_path.stat().st_size
         self.send_response(200)
-        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Disposition", f'attachment; filename="{file_path.name}"')
         self.send_header("Content-Length", str(size))
         self.end_headers()
@@ -264,6 +284,9 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path.startswith("/recordings/") and self.path.endswith("/split"):
                 name = unquote(self.path[len("/recordings/"):-len("/split")])
                 self._json({"files": recorder.split_recording(name)})
+            elif self.path.startswith("/recordings/") and self.path.endswith("/zip"):
+                name = unquote(self.path[len("/recordings/"):-len("/zip")])
+                self._json({"file": recorder.zip_recording(name)})
             else:
                 self._json({"error": "not found"}, 404)
         except recorder.RecorderError as exc:

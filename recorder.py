@@ -30,6 +30,7 @@ import subprocess
 import sys
 import threading
 import time
+import zipfile
 from pathlib import Path
 
 CARD_NAME = os.environ.get("XAIR_CARD_NAME", "XR18")
@@ -39,6 +40,11 @@ BYTES_PER_SAMPLE = 3
 SAMPLE_RATE = 48000
 
 MIN_FREE_SECONDS = 600  # refuse to start unless this much recording time fits
+
+# Below this peak level (dBFS, via ffmpeg's volumedetect), a split channel is
+# treated as "nothing was plugged into this input" and left out of the zip
+# bundle - not a config knob, just the line between silence and a real signal.
+SILENCE_THRESHOLD_DB = -50.0
 
 RECORDINGS_DIR = Path(os.environ.get("XAIR_REC_DIR", str(Path.home() / "recordings")))
 STATE_FILE = RECORDINGS_DIR / ".recorder_state.json"
@@ -248,11 +254,14 @@ def delete_recording(name: str) -> None:
 
 
 def resolve_recording_path(rel_path: str) -> Path:
-    """Resolve a name/relative-path (top-level recording or a channels/ subfile)
-    to a real file inside RECORDINGS_DIR, refusing anything that escapes it."""
+    """Resolve a name/relative-path (top-level recording, a channels/ subfile,
+    or a zipped channel bundle) to a real file inside RECORDINGS_DIR, refusing
+    anything that escapes it."""
     base = RECORDINGS_DIR.resolve()
     candidate = (base / rel_path).resolve()
-    if not candidate.is_relative_to(base) or candidate.suffix.lower() != ".wav" or not candidate.is_file():
+    if (not candidate.is_relative_to(base)
+            or candidate.suffix.lower() not in (".wav", ".zip")
+            or not candidate.is_file()):
         raise RecorderError(f"recording not found: {rel_path}")
     return candidate
 
@@ -302,6 +311,66 @@ def split_channels(wav_path: str, out_dir: str = None) -> list:
     return outputs
 
 
+def _channel_has_signal(path: Path) -> bool:
+    """Peak level of a mono channel file, via ffmpeg's volumedetect filter.
+    Defaults to "has signal" if detection fails for any reason, so a
+    detection hiccup never silently drops a channel that was actually used."""
+    cmd = ["ffmpeg", "-i", str(path), "-af", "volumedetect", "-f", "null", "-"]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    for line in result.stderr.splitlines():
+        if "max_volume:" in line:
+            try:
+                db = float(line.split("max_volume:")[1].strip().split()[0])
+            except (IndexError, ValueError):
+                return True
+            return db > SILENCE_THRESHOLD_DB
+    return True
+
+
+def _build_zip(channel_files: list, zip_path: Path) -> list:
+    """Zip the channel files that have detected signal, dropping silent ones.
+    Never ships an empty zip: if detection finds signal on none of them,
+    all are kept instead."""
+    kept = [p for p in channel_files if _channel_has_signal(p)]
+    if not kept:
+        kept = channel_files
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for p in kept:
+            zf.write(p, arcname=p.name)
+    return kept
+
+
+def zip_channels(wav_path: str, out_dir: str = None) -> str:
+    """Split wav_path into per-channel files (reusing split_channels) and
+    bundle the ones with signal into a single zip alongside them."""
+    src = Path(wav_path)
+    channel_files = [Path(p) for p in split_channels(wav_path, out_dir)]
+    zip_path = channel_files[0].parent / f"{src.stem}-channels.zip"
+    _build_zip(channel_files, zip_path)
+    return str(zip_path)
+
+
+def zip_recording(name: str) -> str:
+    """Zip a top-level recording's per-channel split (channels with no
+    detected signal left out) into one file, reusing a previous zip if it's
+    already newer than the source recording."""
+    safe_name = Path(name).name
+    file_path = RECORDINGS_DIR / safe_name
+    if safe_name != name or file_path.suffix.lower() != ".wav" or not file_path.is_file():
+        raise RecorderError(f"recording not found: {name}")
+
+    split_recording(name)  # ensures the per-channel split exists and is fresh (cached)
+    source_mtime = file_path.stat().st_mtime
+    zip_path = RECORDINGS_DIR / f"{file_path.stem}-channels.zip"
+    if zip_path.is_file() and zip_path.stat().st_mtime >= source_mtime:
+        return str(zip_path.relative_to(RECORDINGS_DIR))
+
+    channels_dir = RECORDINGS_DIR / f"{file_path.stem}-channels"
+    channel_files = sorted(channels_dir.glob("*.wav"))
+    _build_zip(channel_files, zip_path)
+    return str(zip_path.relative_to(RECORDINGS_DIR))
+
+
 def main():
     parser = argparse.ArgumentParser(description="X Air multitrack recorder control")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -311,6 +380,9 @@ def main():
     split_p = sub.add_parser("split")
     split_p.add_argument("file")
     split_p.add_argument("--out-dir")
+    zip_p = sub.add_parser("zip")
+    zip_p.add_argument("file")
+    zip_p.add_argument("--out-dir")
     sub.add_parser("venue-mode")
     sub.add_parser("home-mode")
 
@@ -324,6 +396,8 @@ def main():
             print(json.dumps(status(), indent=2))
         elif args.command == "split":
             print(json.dumps(split_channels(args.file, args.out_dir), indent=2))
+        elif args.command == "zip":
+            print(zip_channels(args.file, args.out_dir))
         elif args.command == "venue-mode":
             switch_network("venue")
             print("switched to venue AP")

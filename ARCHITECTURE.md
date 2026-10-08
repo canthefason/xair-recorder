@@ -130,6 +130,23 @@ because splitting a real multi-hour recording into 18 mono files is not free,
 and the web UI's "Split channels" button can reasonably be clicked more than
 once.
 
+## Bundling the split into a single zip
+
+Downloading 18 separate mono files one at a time from a phone on the venue
+AP is tedious, so `zip_recording()` wraps `split_recording()`'s (cached)
+output into one `<name>-channels.zip`. It uses the same staleness check
+(zip mtime vs. source mtime) to skip rebuilding on repeat clicks.
+
+Channels with nothing plugged into them are left out of the zip rather than
+shipping 18 same-length files when only 6 were used. "Has signal" is decided
+by peak level (`_channel_has_signal()`, via ffmpeg's `volumedetect` filter,
+threshold `SILENCE_THRESHOLD_DB = -50.0`) rather than anything tied to a
+specific channel number or name, since channel usage varies by show.
+Detection failure or a would-be-empty zip (every channel reads as silent,
+e.g. detection broke) both fail open to "include everything" — the zip is
+for convenience, not the only copy, but it should never end up missing
+something that was actually recorded.
+
 ## WiFi mode switching (venue vs. home)
 
 Live-sound X-Air setups often end up somewhere with no existing network. The
